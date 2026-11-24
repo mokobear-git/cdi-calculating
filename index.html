@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CDI 採点アプリ</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--fg:#1f2933;--sub:#616e7c;--line:#d9e0e6;--acc:#2563eb;--accbg:#e8f0fe;--warn:#b42318;--warnbg:#fdecea}
+@media (prefers-color-scheme:dark){:root{--bg:#12161b;--card:#1b222a;--fg:#e6ebf0;--sub:#9aa7b4;--line:#2d3743;--acc:#6aa0ff;--accbg:#1f2d48;--warn:#ff8a80;--warnbg:#3a1d1b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;line-height:1.6}
+header{padding:16px;max-width:760px;margin:0 auto}
+h1{font-size:20px;margin:0}
+header p{margin:4px 0 0;color:var(--sub);font-size:13px}
+main{max-width:760px;margin:0 auto;padding:0 16px 120px}
+.q{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.q.alert{border-color:var(--warn)}
+.q h2{font-size:14px;margin:0 0 8px;color:var(--sub)}
+.note{font-size:13px;color:var(--sub);margin:16px 0 8px}
+label{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+label:hover{background:var(--bg)}
+label:has(input:checked){background:var(--accbg);border-color:var(--acc)}
+input{margin-top:5px;accent-color:var(--acc)}
+.s{flex:none;min-width:22px;height:22px;border-radius:50%;background:var(--bg);border:1px solid var(--line);font-size:12px;display:flex;align-items:center;justify-content:center;color:var(--sub)}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:10px 16px}
+.bar div{max-width:760px;margin:0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.total{font-size:22px;font-weight:700}
+.meta{font-size:13px;color:var(--sub);flex:1}
+.warn{background:var(--warnbg);color:var(--warn);padding:2px 8px;border-radius:6px;font-size:13px;font-weight:600}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:6px 14px;border-radius:8px;cursor:pointer}
+button:hover{background:var(--bg)}
+.small{font-size:12px;color:var(--sub);margin-top:24px}
+</style>
+</head>
+<body>
+<header>
+<h1>CDI（Children’s Depression Inventory）採点</h1>
+<p>各項目で最もあてはまる文章を1つ選択。合計点（0–54）を自動算出する。</p>
+</header>
+<main id="main"></main>
+<div class="bar"><div>
+<span>合計</span><span class="total" id="total">0</span><span>/ 54点</span>
+<span class="meta" id="meta"></span>
+<span class="warn" id="alert" hidden>項目9：希死念慮あり</span>
+<button id="reset" type="button">リセット</button>
+</div></div>
+<script>
+// 各項目：選択肢の文言を印刷順に並べ、対応する得点を併記（原版PDFの得点に準拠）
+const ITEMS=[
+[["わたしは悲しいことがちょっとだけあった",0],["わたしは悲しいことが多かった",1],["わたしはずっと悲しかった",2]],
+[["なんにもうまくいかないような気がする",2],["うまくいくかどうかわからない",1],["たぶんなんでもうまくいくような気がする",0]],
+[["わたしはほとんどのことがうまくやれている",0],["わたしはまちがうことが多い",1],["わたしはいつもまちがってばかりいる",2]],
+[["わたしはなにをやっても楽しい",0],["わたしは楽しいことがときどきある",1],["わたしはなにをやっても楽しくない",2]],
+[["わたしはいつも悪い子だった",2],["わたしは悪い子の時が多かった",1],["わたしはときどき悪い子だった",0]],
+[["わたしに悪いことがおこらないかとちょっと気になった",0],["わたしに悪いことがおこらないかと心配だった",1],["わたしに悪いことが必ずおこりそうな気がする",2]],
+[["わたしは自分が嫌いだ",2],["わたしは自分があまり好きではない",1],["わたしは自分が好きだ",0]],
+[["悪いことはみんな自分のせいだと思う",2],["悪いことの多くが自分のせいだと思う",1],["悪いことのほとんどは自分のせいではない",0]],
+[["わたしは死にたいと考えたことはない",0],["わたしは死にたいと考えたことはあるが、死のうとは思わない",1],["わたしは死にたいと思う",2]],
+[["わたしは毎日泣きたくなる",2],["わたしは泣きたくなる日が多い",1],["わたしはちょっと泣きたくなることがある",0]],
+[["あることがわたしをいつも苦しめる",2],["あることがわたしを苦しめることが多い",1],["あることがちょっとだけわたしを苦しめる",0]],
+[["わたしは他の人と一緒にいることが好きだ",0],["わたしは他の人と一緒にいたくないと思うことが多い",1],["わたしはぜったい他の人と一緒にいたくない",2]],
+[["わたしは一人で物事を決められない",2],["わたしは一人で物事を決めるのがむずかしい",1],["わたしは一人で物事を簡単に決められる",0]],
+[["わたしの顔は良い",0],["わたしの顔はちょっと気にいらないところがある",1],["わたしの顔はみにくい",2]],
+[["わたしは学校の勉強をするのにいつもがんばってやらなくてはならない",2],["わたしは学校の勉強をするのにがんばってやらなくてはならないことが多い",1],["わたしは学校の勉強をするのに問題はない",0]],
+[["わたしは眠れなくていつも困っている",2],["わたしはよく眠れないことがある",1],["わたしはよく眠れている",0]],
+[["わたしはちょっとだけ疲れることがあった",0],["わたしは疲れた日が多かった",1],["わたしはほとんど疲れていた",2]],
+[["わたしはほとんど毎日食欲がなかった",2],["わたしは食欲が無い日が多かった",1],["わたしはおいしく食べている",0]],
+[["わたしは痛みや苦しみをあまり心配しない",0],["わたしは痛みや苦しみが心配になる日が多い",1],["わたしは痛みや苦しみをいつも心配している",2]],
+[["わたしはひとりぼっちであると思わない",0],["わたしはひとりぼっちだと思うことが多い",1],["わたしはいつもひとりぼっちだと思っている",2]],
+[["わたしは学校を楽しいと思ったことが全くない",2],["わたしは学校を楽しいと思うことはちょっとしかない",1],["わたしは学校がいつも楽しい",0]],
+[["わたしは友だちがたくさんいる",0],["わたしは友だちが何人かいるが、もっと欲しい",1],["わたしには友だちがいない",2]],
+// 23–27は原版PDFに得点の印字なし。標準CDIの採点（23:0-1-2, 24:2-1-0, 25:2-1-0, 26:0-1-2, 27:0-1-2）に準拠
+[["学校の勉強がうまくいっている",0],["学校の勉強が前ほどうまくいかない",1],["以前は良かった科目が大変悪くなった",2]],
+[["わたしは他の子どものようにどうしても良い子になれない",2],["わたしはやろうとしたら他の子どものように良い子になれる",1],["わたしは他の子どもと同じように良い子である",0]],
+[["わたしは誰からも本当には好かれていない",2],["わたしは誰かに好かれているかどうかわからない",1],["わたしはきっと誰かに好かれていると思う",0]],
+[["わたしは言われたことはいつもする",0],["わたしは言われたことをしないことが多い",1],["わたしは言われたことは絶対しない",2]],
+[["わたしは他の人とうまくやれている",0],["わたしは他の人とよくけんかする",1],["わたしは他の人とけんかばかりしている",2]]
+];
+const main=document.getElementById('main');
+ITEMS.forEach((opts,i)=>{
+  if(i===15){const n=document.createElement('p');n.className='note';n.textContent='＊注意：この2週間のあなたのことについて書き入れてください';main.appendChild(n);}
+  const q=document.createElement('section');q.className='q';q.id='q'+i;
+  q.innerHTML=`<h2>${i+1}.</h2>`+opts.map(([t,s],j)=>
+    `<label><input type="radio" name="q${i}" value="${s}"><span class="s">${s}</span><span>${t}</span></label>`).join('');
+  main.appendChild(q);
+});
+const note=document.createElement('p');note.className='small';
+note.innerHTML='原版：Kovacs M. Children’s Depression Inventory（1982）日本語版に基づく。得点は項目ごとに0–2点、合計0–54点。本ツールは採点補助であり、診断を行うものではない。入力内容は端末内で処理され、送信・保存されない。';
+main.appendChild(note);
+
+function update(){
+  let sum=0,n=0;
+  for(let i=0;i<ITEMS.length;i++){
+    const c=document.querySelector(`input[name=q${i}]:checked`);
+    if(c){sum+=+c.value;n++;}
+  }
+  document.getElementById('total').textContent=sum;
+  document.getElementById('meta').textContent=`回答 ${n}/27`+(n<27?`（未回答 ${27-n}）`:'');
+  const c9=document.querySelector('input[name=q8]:checked');
+  const a=c9&&+c9.value>=1;
+  document.getElementById('alert').hidden=!a;
+  document.getElementById('q8').classList.toggle('alert',!!a);
+}
+main.addEventListener('change',update);
+document.getElementById('reset').onclick=()=>{
+  if(!confirm('回答をすべてリセットする？'))return;
+  document.querySelectorAll('input[type=radio]').forEach(r=>r.checked=false);update();
+};
+update();
+</script>
+</body>
+</html>
